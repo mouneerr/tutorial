@@ -1,2 +1,12 @@
+
 bug fixed if () else bla blac test file 1 line 1
 and hot fix goes here :)
+=======
+test file 1 line 1
+and here goes the crazy idea
+if
+else
+whatever
+the crazy idea is done
+
+
