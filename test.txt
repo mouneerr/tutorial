@@ -3,3 +3,5 @@ and here goes the crazy idea
 if
 else
 whatever
+the crazy idea is done
+
