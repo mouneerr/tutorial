@@ -1,2 +1,7 @@
 todo
-
+get latest from SVN
+export a clean version
+init a GIT repo
+git remote on the server
+git push origin master
+get the team on it
