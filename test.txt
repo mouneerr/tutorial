@@ -1,2 +1,5 @@
 test file 1 line 1
-
+and here goes the crazy idea
+if
+else
+whatever
