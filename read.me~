@@ -1,3 +1,10 @@
 read me
 and the cat is sleeping
+<<<<<<< HEAD
 and a new line goes here
+cake is real
+=======
+and a new line goes herle
+cake is fake
+
+>>>>>>> 2cd5939cd4a903a47bd36035c565f8e01b8eef39
