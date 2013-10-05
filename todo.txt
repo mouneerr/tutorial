@@ -5,3 +5,6 @@ init a GIT repo
 git remote on the server
 git push origin master
 get the team on it
+
+1-learn german
+2-learn aikido
