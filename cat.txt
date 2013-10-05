@@ -1,1 +1,4 @@
-"Schrodinger" 
+"Schrodinger" is a special type of cat
+the uncertainity principle is all about momentum and position of an electron
+there's a relationship between the standard deviation of the position of an electron and its momentum
+the relation is inversely proportional
