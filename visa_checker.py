@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-Brazilian Consulate Cairo — Appointment Date Checker
-Monitors available dates for VISIT VISA (VIVIS) / Tourism Visa.
-Alerts you when a slot earlier than June 20 2026 appears.
+Brazilian Consulate Cairo — VISIT VISA (VIVIS) Date Checker
+Logs in, opens the 'Available dates' page, reads the table,
+and alerts you when the VIVIS / Tourism Visa slot is before June 20 2026.
 
 Usage:
     python visa_checker.py              # single check
-    python visa_checker.py --loop       # check every CHECK_INTERVAL_MINUTES minutes
+    python visa_checker.py --loop       # re-check every CHECK_INTERVAL_MINUTES
 """
 
 import asyncio
@@ -17,38 +17,40 @@ from datetime import date, datetime
 from playwright.async_api import Page, async_playwright
 
 # ──────────────────────────────────────────────────────────────────────────────
-# CONFIGURATION  ← fill in your credentials here
+# CONFIGURATION  ← fill in your credentials
 # ──────────────────────────────────────────────────────────────────────────────
 USERNAME = "YOUR_USERNAME"
 PASSWORD = "YOUR_PASSWORD"
 
-TARGET_DATE = date(2026, 6, 20)          # alert if any date is BEFORE this
-BASE_URL    = "https://ec-cairo.itamaraty.gov.br/"
-CHECK_INTERVAL_MINUTES = 15              # loop mode: minutes between checks
-HEADLESS = False                         # False = visible browser (recommended while tuning)
+TARGET_DATE            = date(2026, 6, 20)   # alert if slot is BEFORE this
+BASE_URL               = "https://ec-cairo.itamaraty.gov.br/"
+CHECK_INTERVAL_MINUTES = 15                  # loop mode only
+HEADLESS               = False               # True = no visible browser window
 # ──────────────────────────────────────────────────────────────────────────────
+
+# Keywords that identify the row we care about
+VIVIS_KEYWORDS = ("VIVIS", "TOURISM VISA", "VISTO DE VISITA")
 
 
 # ── Human-like helpers ────────────────────────────────────────────────────────
 
 async def pause(min_ms: float = 400, max_ms: float = 1400):
-    """Random pause mimicking human reaction time."""
     await asyncio.sleep(random.uniform(min_ms, max_ms) / 1000)
 
 
 async def human_type(page: Page, selector: str, text: str):
-    """Click a field and type character-by-character at human speed."""
+    """Click a field then type each character with a random inter-key delay."""
     el = await page.wait_for_selector(selector, timeout=15_000)
     await el.click()
     await pause(200, 500)
     for ch in text:
         await page.keyboard.type(ch)
-        await asyncio.sleep(random.uniform(0.06, 0.20))   # 60-200 ms per key
+        await asyncio.sleep(random.uniform(0.06, 0.20))
     await pause(200, 600)
 
 
 async def human_click(page: Page, selector: str, timeout: int = 15_000):
-    """Move mouse to element and click slightly off-centre."""
+    """Move the mouse to an element and click slightly off-centre."""
     el = await page.wait_for_selector(selector, timeout=timeout)
     box = await el.bounding_box()
     if box:
@@ -64,14 +66,15 @@ async def human_click(page: Page, selector: str, timeout: int = 15_000):
 
 # ── Notification ──────────────────────────────────────────────────────────────
 
-def notify(message: str):
-    """Print a prominent alert; optionally fire a desktop notification."""
-    border = "═" * 64
+def notify(found_date: date):
+    border = "═" * 60
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"\n{border}")
-    print(f"  🚨  APPOINTMENT ALERT  🚨")
-    print(f"  {message}")
-    print(f"  {ts}")
+    print("  *** VISA SLOT AVAILABLE ***")
+    print(f"  VISIT VISA (VIVIS) - TOURISM VISA")
+    print(f"  First available date : {found_date.strftime('%A, %B %d, %Y')}")
+    print(f"  Your target deadline : {TARGET_DATE.strftime('%B %d, %Y')}")
+    print(f"  Checked at           : {ts}")
     print(f"{border}\n")
     print("\a\a\a")   # terminal bell × 3
 
@@ -79,8 +82,8 @@ def notify(message: str):
     try:
         from plyer import notification as desktop
         desktop.notify(
-            title="Consulate Appointment Available!",
-            message=message,
+            title="Visa slot available!",
+            message=f"VIVIS Tourism Visa: {found_date}",
             timeout=60,
         )
     except Exception:
@@ -89,11 +92,20 @@ def notify(message: str):
 
 # ── Date parsing ──────────────────────────────────────────────────────────────
 
-def try_parse_date(text: str) -> date | None:
-    """Return a date object if text looks like a date, else None."""
+def parse_date(text: str) -> date | None:
+    """
+    Parse the dates shown in the table, e.g. 'Thursday, July 02, 2026'.
+    Falls back through several formats.
+    """
     text = text.strip()
-    for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%d.%m.%Y",
-                "%d/%m/%y", "%m/%d/%Y"):
+    for fmt in (
+        "%A, %B %d, %Y",   # Thursday, July 02, 2026
+        "%B %d, %Y",        # July 02, 2026
+        "%d/%m/%Y",
+        "%Y-%m-%d",
+        "%d-%m-%Y",
+        "%d.%m.%Y",
+    ):
         try:
             return datetime.strptime(text, fmt).date()
         except ValueError:
@@ -104,46 +116,33 @@ def try_parse_date(text: str) -> date | None:
 # ── Core logic ────────────────────────────────────────────────────────────────
 
 async def login(page: Page):
-    """Navigate to the site and log in."""
     print(f"[*] Opening {BASE_URL}")
     await page.goto(BASE_URL, wait_until="domcontentloaded", timeout=30_000)
     await pause(1500, 3000)
 
-    # ── Locate username field ──────────────────────────────────────────────
-    # Try several common selector patterns used by consulate portals.
-    user_candidates = [
-        "input[name='username']",
-        "input[name='login']",
-        "input[name='user']",
-        "input[id='username']",
-        "input[id='login']",
+    # Locate the username field
+    for sel in (
+        "input[name='username']", "input[name='login']", "input[name='user']",
+        "input[id='username']",   "input[id='login']",
         "input[type='text']:first-of-type",
-    ]
-    user_sel = None
-    for sel in user_candidates:
+    ):
         if await page.query_selector(sel):
-            user_sel = sel
+            await human_type(page, sel, USERNAME)
             break
-    if not user_sel:
-        await page.screenshot(path="debug_login_page.png")
-        raise RuntimeError("Cannot find username field — see debug_login_page.png")
+    else:
+        await page.screenshot(path="debug_login.png")
+        raise RuntimeError("Cannot find username field — see debug_login.png")
 
-    print("[*] Typing credentials ...")
-    await human_type(page, user_sel, USERNAME)
     await pause(400, 900)
     await human_type(page, "input[type='password']", PASSWORD)
     await pause(600, 1200)
 
-    # ── Click login button ─────────────────────────────────────────────────
-    login_btn_candidates = [
-        "button[type='submit']",
-        "input[type='submit']",
-        "button:has-text('Login')",
-        "button:has-text('Entrar')",
+    # Click the login / submit button
+    for sel in (
+        "button[type='submit']", "input[type='submit']",
+        "button:has-text('Login')", "button:has-text('Entrar')",
         "button:has-text('Acessar')",
-        "a:has-text('Login')",
-    ]
-    for sel in login_btn_candidates:
+    ):
         if await page.query_selector(sel):
             await human_click(page, sel)
             break
@@ -151,151 +150,84 @@ async def login(page: Page):
     await page.wait_for_load_state("networkidle", timeout=25_000)
     await pause(1500, 2500)
 
-    # Quick sanity-check: still on login page?
     if any(kw in page.url.lower() for kw in ("login", "senha", "signin")):
         await page.screenshot(path="debug_login_failed.png")
         raise RuntimeError(
-            "Still on login page after submit — "
-            "wrong credentials or CAPTCHA. See debug_login_failed.png"
+            "Still on login page — wrong credentials or CAPTCHA.\n"
+            "See debug_login_failed.png"
         )
     print("[+] Logged in.")
 
 
-async def navigate_to_available_dates(page: Page):
-    """
-    Find and click the 'Available Dates' section.
-    Adjust selectors below if the page uses different labels.
-    """
+async def go_to_available_dates(page: Page):
+    """Click the 'Available dates' link in the top navigation bar."""
     await pause(800, 1600)
-
-    candidates = [
-        "text=Available Dates",
-        "text=Datas Disponíveis",
-        "text=Datas disponíveis",
-        "text=Agendamento",
-        "a[href*='available']",
-        "a[href*='dates']",
-        "a[href*='datas']",
-        "a[href*='agendamento']",
-        "a[href*='schedule']",
-    ]
-
-    for sel in candidates:
+    for sel in (
+        "a:has-text('Available dates')",
+        "a:has-text('Available Dates')",
+        "a:has-text('Datas disponíveis')",
+        "a:has-text('Datas Disponíveis')",
+        "nav a[href*='available']",
+        "nav a[href*='datas']",
+    ):
         try:
             await human_click(page, sel, timeout=5_000)
-            print(f"[+] Navigated via: {sel}")
             await page.wait_for_load_state("networkidle", timeout=20_000)
             await pause(1000, 2000)
+            print("[+] On 'Available dates' page.")
             return
         except Exception:
             continue
 
-    await page.screenshot(path="debug_landing.png")
+    await page.screenshot(path="debug_post_login.png")
     raise RuntimeError(
-        "Cannot find 'Available Dates' link — see debug_landing.png.\n"
-        "Update the `candidates` list in navigate_to_available_dates()."
+        "Cannot find 'Available dates' nav link.\n"
+        "See debug_post_login.png and check the selector."
     )
 
 
-async def select_visa_type(page: Page):
+async def find_vivis_date(page: Page) -> date | None:
     """
-    Find the visa-type dropdown and pick VIVIS / Tourism Visa.
+    Read the two-column table on the 'Dates available for scheduling' page.
+    Find the row whose Service cell contains VIVIS / TOURISM VISA keywords,
+    then parse and return the date in the adjacent 'First available date' cell.
     """
-    # Look for a <select> that has a VIVIS or Tourism option
-    selects = await page.query_selector_all("select")
-    for sel_el in selects:
-        options = await sel_el.eval_on_selector_all(
-            "option",
-            "els => els.map(e => ({value: e.value, text: e.textContent.trim()}))"
-        )
-        vivis = next(
-            (o for o in options
-             if any(kw in o["text"].upper()
-                    for kw in ("VIVIS", "TOURISM", "TURISMO", "VISIT VISA"))),
-            None
-        )
-        if vivis:
-            handle = await sel_el.element_handle()
-            box = await handle.bounding_box()
-            if box:
-                x = box["x"] + box["width"]  * 0.5
-                y = box["y"] + box["height"] * 0.5
-                await page.mouse.move(x, y, steps=15)
-                await pause(150, 400)
-            await sel_el.select_option(value=vivis["value"])
-            print(f"[+] Selected visa type: {vivis['text']}")
-            await pause(600, 1200)
+    await pause(500, 1000)
 
-            # Hit search / filter button if present
-            for btn_sel in [
-                "button[type='submit']",
-                "button:has-text('Search')",
-                "button:has-text('Buscar')",
-                "button:has-text('Consultar')",
-                "button:has-text('Filter')",
-                "input[type='submit']",
-            ]:
-                if await page.query_selector(btn_sel):
-                    await human_click(page, btn_sel)
-                    await page.wait_for_load_state("networkidle", timeout=20_000)
-                    await pause(800, 1600)
-                    break
-            return
+    # Each row: <tr><td>Service name</td><td>First available date</td></tr>
+    rows = await page.query_selector_all("table tr")
 
-    # If no dropdown found, maybe the page already shows only one visa type,
-    # or the selection is done differently (radio buttons, links, etc.)
-    print("[i] No visa-type dropdown found — continuing without filtering.")
+    for row in rows:
+        cells = await row.query_selector_all("td")
+        if len(cells) < 2:
+            continue
 
+        service_text = (await cells[0].inner_text()).strip().upper()
+        date_text    = (await cells[1].inner_text()).strip()
 
-async def extract_dates(page: Page) -> list[date]:
-    """
-    Pull date values from whatever elements the results page uses.
-    Returns a list of parsed date objects.
-    """
-    await pause(800, 1500)
+        if any(kw in service_text for kw in VIVIS_KEYWORDS):
+            print(f"[+] Found row  : {(await cells[0].inner_text()).strip()}")
+            print(f"    Date text  : {date_text}")
+            parsed = parse_date(date_text)
+            if parsed:
+                return parsed
+            else:
+                print(f"[!] Could not parse date: {date_text!r}")
+                return None
 
-    # Grab text from cells, list items, and elements whose class hints at dates
-    raw_texts: list[str] = await page.eval_on_selector_all(
-        "td, li, "
-        "[class*='date'], [class*='data'], [class*='slot'], "
-        "[class*='available'], [class*='calendar'], "
-        "[data-date], [data-day]",
-        """els => els.flatMap(el => {
-            const d = el.getAttribute('data-date') || el.getAttribute('data-day');
-            return d ? [d, el.textContent.trim()] : [el.textContent.trim()];
-        })"""
+    # Nothing matched — save a screenshot for inspection
+    await page.screenshot(path="debug_table.png")
+    print(
+        "[!] VIVIS row not found in table.\n"
+        "    Screenshot saved as debug_table.png.\n"
+        "    Check VIVIS_KEYWORDS at the top of the script."
     )
-
-    found: list[date] = []
-    for t in raw_texts:
-        d = try_parse_date(t)
-        if d:
-            found.append(d)
-
-    # De-duplicate while preserving order
-    seen: set[date] = set()
-    unique: list[date] = []
-    for d in found:
-        if d not in seen:
-            seen.add(d)
-            unique.append(d)
-
-    if not unique:
-        await page.screenshot(path="debug_dates_page.png")
-        print(
-            "[!] No dates extracted. Screenshot saved as debug_dates_page.png.\n"
-            "    Inspect it and update the selectors in extract_dates()."
-        )
-    else:
-        print(f"[+] Dates found: {', '.join(str(d) for d in sorted(unique))}")
-
-    return unique
+    return None
 
 
 # ── Main cycle ────────────────────────────────────────────────────────────────
 
 async def run_once():
-    """One complete check: login → navigate → select visa → extract → alert."""
     async with async_playwright() as pw:
         browser = await pw.chromium.launch(
             headless=HEADLESS,
@@ -304,7 +236,6 @@ async def run_once():
                 "--disable-dev-shm-usage",
                 "--no-sandbox",
                 "--disable-infobars",
-                "--start-maximized",
             ],
         )
         context = await browser.new_context(
@@ -317,66 +248,48 @@ async def run_once():
             locale="en-US",
             timezone_id="Africa/Cairo",
         )
-
-        # Remove the webdriver flag so the site can't tell it's Playwright
+        # Remove the webdriver fingerprint
         await context.add_init_script("""
             Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
             window.chrome = {runtime: {}};
-            Object.defineProperty(navigator, 'plugins', {get: () => [1,2,3]});
+            Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3]});
         """)
 
         page = await context.new_page()
-
         try:
             await login(page)
-            await navigate_to_available_dates(page)
-            await select_visa_type(page)
-            dates = await extract_dates(page)
+            await go_to_available_dates(page)
+            vivis_date = await find_vivis_date(page)
 
-            if not dates:
-                print("[i] No available dates found for VIVIS / Tourism Visa.")
-                return
-
-            early = sorted(d for d in dates if d < TARGET_DATE)
-            if early:
-                notify(
-                    f"Slot available before {TARGET_DATE}!\n"
-                    f"  Earliest: {early[0]}\n"
-                    f"  All early dates: {', '.join(str(d) for d in early)}"
-                )
+            if vivis_date is None:
+                print("[i] Could not determine VIVIS date this run.")
+            elif vivis_date < TARGET_DATE:
+                notify(vivis_date)
             else:
-                soonest = min(dates)
                 print(
-                    f"[i] No dates before {TARGET_DATE}. "
-                    f"Soonest available: {soonest}"
+                    f"[i] No early slot yet.\n"
+                    f"    VIVIS first available : {vivis_date}\n"
+                    f"    Your target           : before {TARGET_DATE}"
                 )
-
-        except Exception as exc:
-            print(f"[!] Error during check: {exc}")
-            raise
-
         finally:
             await pause(800, 1500)
             await browser.close()
 
 
 async def run_loop():
-    """Repeat run_once() on a schedule."""
     print(
         f"[*] Loop mode — checking every {CHECK_INTERVAL_MINUTES} min. "
-        f"Press Ctrl-C to stop."
+        "Press Ctrl-C to stop."
     )
     while True:
         print(f"\n[*] Check at {datetime.now().strftime('%H:%M:%S')}")
         try:
             await run_once()
         except Exception as exc:
-            print(f"[!] Check failed (will retry): {exc}")
+            print(f"[!] Check failed (will retry next cycle): {exc}")
         print(f"[i] Sleeping {CHECK_INTERVAL_MINUTES} min ...")
         await asyncio.sleep(CHECK_INTERVAL_MINUTES * 60)
 
-
-# ── Entry point ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     if "--loop" in sys.argv:
