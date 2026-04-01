@@ -28,8 +28,8 @@ CHECK_INTERVAL_MINUTES = 15                  # loop mode only
 HEADLESS               = False               # True = no visible browser window
 # ──────────────────────────────────────────────────────────────────────────────
 
-# Keywords that identify the row we care about
-VIVIS_KEYWORDS = ("VIVIS", "TOURISM VISA", "VISTO DE VISITA")
+# Target row must contain BOTH of these (avoids matching FAMILY REUNION row)
+VIVIS_MUST_CONTAIN = ("VIVIS", "TOURISM")
 
 
 # ── Human-like helpers ────────────────────────────────────────────────────────
@@ -196,7 +196,7 @@ async def find_vivis_date(page: Page) -> date | None:
         service_text = (await cells[0].inner_text()).strip().upper()
         date_text    = (await cells[1].inner_text()).strip()
 
-        if any(kw in service_text for kw in VIVIS_KEYWORDS):
+        if "VIVIS" in service_text and "TOURISM" in service_text:
             print(f"[+] Found row  : {(await cells[0].inner_text()).strip()}")
             print(f"    Date text  : {date_text}")
             parsed = parse_date(date_text)
