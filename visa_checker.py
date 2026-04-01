@@ -19,11 +19,11 @@ from playwright.async_api import Page, async_playwright
 # ──────────────────────────────────────────────────────────────────────────────
 # CONFIGURATION  ← fill in your credentials
 # ──────────────────────────────────────────────────────────────────────────────
-USERNAME = "YOUR_USERNAME"
+EMAIL    = "YOUR_EMAIL@example.com"   # the Email field on the login page
 PASSWORD = "YOUR_PASSWORD"
 
 TARGET_DATE            = date(2026, 6, 20)   # alert if slot is BEFORE this
-BASE_URL               = "https://ec-cairo.itamaraty.gov.br/"
+LOGIN_URL              = "https://ec-cairo.itamaraty.gov.br/login"
 CHECK_INTERVAL_MINUTES = 15                  # loop mode only
 HEADLESS               = False               # True = no visible browser window
 # ──────────────────────────────────────────────────────────────────────────────
@@ -116,32 +116,32 @@ def parse_date(text: str) -> date | None:
 # ── Core logic ────────────────────────────────────────────────────────────────
 
 async def login(page: Page):
-    print(f"[*] Opening {BASE_URL}")
-    await page.goto(BASE_URL, wait_until="domcontentloaded", timeout=30_000)
+    # Go directly to the login URL (ec-cairo.itamaraty.gov.br/login)
+    print(f"[*] Opening {LOGIN_URL}")
+    await page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=30_000)
     await pause(1500, 3000)
 
-    # Locate the username field
-    for sel in (
-        "input[name='username']", "input[name='login']", "input[name='user']",
-        "input[id='username']",   "input[id='login']",
-        "input[type='text']:first-of-type",
-    ):
-        if await page.query_selector(sel):
-            await human_type(page, sel, USERNAME)
-            break
-    else:
-        await page.screenshot(path="debug_login.png")
-        raise RuntimeError("Cannot find username field — see debug_login.png")
+    # ── Email field ────────────────────────────────────────────────────────
+    # The page has a labelled "Email:" input above the password field.
+    print("[*] Entering email ...")
+    await human_type(page, "input[type='email'], input[name='email'], input[id='email']", EMAIL)
 
-    await pause(400, 900)
+    await pause(500, 1000)
+
+    # ── Password field ─────────────────────────────────────────────────────
+    print("[*] Entering password ...")
     await human_type(page, "input[type='password']", PASSWORD)
-    await pause(600, 1200)
 
-    # Click the login / submit button
+    await pause(700, 1300)
+
+    # ── Green "Enter" button ───────────────────────────────────────────────
+    # The button on this page says "Enter" (not Login / Entrar / Submit).
+    print("[*] Clicking Enter ...")
     for sel in (
-        "button[type='submit']", "input[type='submit']",
-        "button:has-text('Login')", "button:has-text('Entrar')",
-        "button:has-text('Acessar')",
+        "button:has-text('Enter')",
+        "input[type='submit'][value='Enter']",
+        "button[type='submit']",
+        "input[type='submit']",
     ):
         if await page.query_selector(sel):
             await human_click(page, sel)
@@ -150,11 +150,12 @@ async def login(page: Page):
     await page.wait_for_load_state("networkidle", timeout=25_000)
     await pause(1500, 2500)
 
-    if any(kw in page.url.lower() for kw in ("login", "senha", "signin")):
+    # If we're still on /login the credentials were wrong
+    if "/login" in page.url:
         await page.screenshot(path="debug_login_failed.png")
         raise RuntimeError(
-            "Still on login page — wrong credentials or CAPTCHA.\n"
-            "See debug_login_failed.png"
+            "Still on login page after submit.\n"
+            "Check EMAIL / PASSWORD in the script, or see debug_login_failed.png."
         )
     print("[+] Logged in.")
 
