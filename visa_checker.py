@@ -24,7 +24,7 @@ PASSWORD = "YOUR_PASSWORD"
 
 TARGET_DATE            = date(2026, 6, 20)   # alert if slot is BEFORE this
 LOGIN_URL              = "https://ec-cairo.itamaraty.gov.br/login"
-CHECK_INTERVAL_MINUTES = 15                  # loop mode only
+CHECK_INTERVAL_MINUTES = 30                  # loop mode only
 HEADLESS               = False               # True = no visible browser window
 # ──────────────────────────────────────────────────────────────────────────────
 
