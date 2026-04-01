@@ -89,6 +89,32 @@ def send_telegram(found_date: date):
         print(f"[!] Telegram failed: {e}")
 
 
+def send_telegram_status(vivis_date: date | None):
+    """Send a routine status message on every check (no slot found)."""
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    if vivis_date is None:
+        text = f"⚠️ Check ran at {ts}\nCould not read VIVIS date."
+    else:
+        text = (
+            f"🔍 Check ran at {ts}\n"
+            f"VISIT VISA (VIVIS) - TOURISM VISA\n"
+            f"First available: {vivis_date.strftime('%A, %B %d, %Y')}\n"
+            f"No slot before {TARGET_DATE} yet."
+        )
+    try:
+        resp = requests.get(
+            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+            params={"chat_id": TELEGRAM_CHAT_ID, "text": text},
+            timeout=10,
+        )
+        if resp.ok:
+            print("[+] Telegram status sent.")
+        else:
+            print(f"[!] Telegram error: {resp.text}")
+    except Exception as e:
+        print(f"[!] Telegram failed: {e}")
+
+
 def notify(found_date: date):
     border = "═" * 60
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -278,6 +304,7 @@ async def run_once():
 
             if vivis_date is None:
                 print("[i] Could not determine VIVIS date this run.")
+                send_telegram_status(None)
             elif vivis_date < TARGET_DATE:
                 notify(vivis_date)
             else:
@@ -286,6 +313,7 @@ async def run_once():
                     f"    VIVIS first available : {vivis_date}\n"
                     f"    Your target           : before {TARGET_DATE}"
                 )
+                send_telegram_status(vivis_date)
         finally:
             await pause(800, 1500)
             await browser.close()
