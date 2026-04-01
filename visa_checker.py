@@ -14,6 +14,7 @@ import random
 import sys
 from datetime import date, datetime
 
+import requests
 from playwright.async_api import Page, async_playwright
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -21,6 +22,9 @@ from playwright.async_api import Page, async_playwright
 # ──────────────────────────────────────────────────────────────────────────────
 EMAIL    = "YOUR_EMAIL@example.com"   # the Email field on the login page
 PASSWORD = "YOUR_PASSWORD"
+
+TELEGRAM_TOKEN   = "YOUR_BOT_TOKEN"   # from @BotFather
+TELEGRAM_CHAT_ID = "971364231"        # your personal chat ID
 
 TARGET_DATE            = date(2026, 6, 20)   # alert if slot is BEFORE this
 LOGIN_URL              = "https://ec-cairo.itamaraty.gov.br/login"
@@ -64,6 +68,27 @@ async def human_click(page: Page, selector: str, timeout: int = 15_000):
 
 # ── Notification ──────────────────────────────────────────────────────────────
 
+def send_telegram(found_date: date):
+    text = (
+        f"🚨 Visa slot available!\n"
+        f"VISIT VISA (VIVIS) - TOURISM VISA\n"
+        f"First available: {found_date.strftime('%A, %B %d, %Y')}\n"
+        f"Book now at: {LOGIN_URL}"
+    )
+    try:
+        resp = requests.get(
+            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+            params={"chat_id": TELEGRAM_CHAT_ID, "text": text},
+            timeout=10,
+        )
+        if resp.ok:
+            print("[+] Telegram notification sent.")
+        else:
+            print(f"[!] Telegram error: {resp.text}")
+    except Exception as e:
+        print(f"[!] Telegram failed: {e}")
+
+
 def notify(found_date: date):
     border = "═" * 60
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -75,6 +100,7 @@ def notify(found_date: date):
     print(f"  Checked at           : {ts}")
     print(f"{border}\n")
     print("\a\a\a")   # terminal bell × 3
+    send_telegram(found_date)
 
     # Optional desktop popup — install with: pip install plyer
     try:
