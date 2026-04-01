@@ -121,31 +121,21 @@ async def login(page: Page):
     await page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=30_000)
     await pause(1500, 3000)
 
-    # ── Email field ────────────────────────────────────────────────────────
-    # The page has a labelled "Email:" input above the password field.
+    # ── Email field  (id="email-input", name="email") ─────────────────────
     print("[*] Entering email ...")
-    await human_type(page, "input[type='email'], input[name='email'], input[id='email']", EMAIL)
+    await human_type(page, "#email-input", EMAIL)
 
     await pause(500, 1000)
 
-    # ── Password field ─────────────────────────────────────────────────────
+    # ── Password field  (id="pass-input", name="pass") ────────────────────
     print("[*] Entering password ...")
-    await human_type(page, "input[type='password']", PASSWORD)
+    await human_type(page, "#pass-input", PASSWORD)
 
     await pause(700, 1300)
 
     # ── Green "Enter" button ───────────────────────────────────────────────
-    # The button on this page says "Enter" (not Login / Entrar / Submit).
     print("[*] Clicking Enter ...")
-    for sel in (
-        "button:has-text('Enter')",
-        "input[type='submit'][value='Enter']",
-        "button[type='submit']",
-        "input[type='submit']",
-    ):
-        if await page.query_selector(sel):
-            await human_click(page, sel)
-            break
+    await human_click(page, "button:has-text('Enter')")
 
     await page.wait_for_load_state("networkidle", timeout=25_000)
     await pause(1500, 2500)
